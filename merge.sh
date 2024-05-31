@@ -1,4 +1,4 @@
-#! /usr/bin/env bash
+#!/usr/bin/env bash
 
 ####################################################
 # Required Libraries
@@ -8,17 +8,17 @@
 # ffmpeg       | ffmpeg/ffprobe  | 3.1.4 3.2
 # gpac         | mp4box          | 0.6.1
 # mp4v2        | mp4chaps        | 2.0.0
-# coreutils    | grealpath/gdate | 8.25
+# coreutils    | find/gdate | 8.25
 #
 # Usage
-# ./mp4.sh merge_as_chapter input*.mp4 output.mp4
+# ./mp4.sh merge_as_chapter input_dir output.mp4
 #
 ####################################################
 check_dependency(){
     echo "ffmpeg    $(echo_if $(program_is_installed ffmpeg))"
     echo "gpac      $(echo_if $(program_is_installed mp4box))"
     echo "mp4v2     $(echo_if $(program_is_installed mp4chaps))"
-    echo "coreutils $(echo_if $(program_is_installed grealpath))"
+    echo "coreutils $(echo_if $(program_is_installed find))" # 使用 find
 }
 
 # Merge multiple mp4 files as chapters
@@ -26,21 +26,25 @@ check_dependency(){
 #   - Chapter markers in the input files will NOT be preserved
 #   - Each input file must be extractly same format
 merge_as_chapter(){
-    echo "### Merge As Chapter ###"
+    echo "### Merge As Chapter ###, $#, $1, $2, $3"
 
     if [ "$#" -lt 2 ]; then
         echo "Error: Wrong number of parameters:"
-        echo "Usage: merge_as_chapter input.m4a [input.m4a...] output.m4b"
+        echo "Usage: merge_as_chapter input_dir output.m4b"
         return
     fi
 
-    local output=${!#}
-    set -- "${@:1:$# -1}"
+    local input_dir="$1"
+    local output="$2"
+
+    echo "input_dir:" "$input_dir"
+    echo "output   :" "$output"
 
     local chapterfile=$(printf "%s-%s" "/tmp/chapterfile" "$(basename ${output} .${output##*.})")
 
-    merge_file "$@" "$output" &&
-    create_chapterfile "$@" > "$chapterfile" &&
+    local files=($(find "$input_dir" -type f -name "*.m4a" | sort -V))
+    merge_file "${files[@]}" "$output" &&
+    create_chapterfile "${files[@]}" > "$chapterfile" &&
     add_chaptermark "$chapterfile" "$output"
 }
 
@@ -68,17 +72,36 @@ add_chaptermark(){
     echo "### Add Chaptermark ###"
 
     if [ "$#" -ne 2 ]; then
-        echo "Usage: add_chaptermark chapterfile file.m4a"
+        echo "Usage: add_chaptermark chapterfile file.m4b"
         return
     fi
 
     local chapterfile="$1"
     local input="$2"
     echo "chapterfile:" "$chapterfile"
+    echo "input file:" "$input"
 
-    mp4box -chap "$chapterfile" "$input" &&
-    mp4chaps --convert --chapter-qt "$input"
+    # 显示章节文件的内容以进行调试
+    echo "Content of chapterfile:"
+    cat "$chapterfile"
+
+    # 添加章节标记并打印调试信息
+    if mp4box -chap "$chapterfile" "$input"; then
+        echo "mp4box completed successfully"
+    else
+        echo "mp4box encountered an error"
+        return 1
+    fi
+
+    # 转换章节标记并打印调试信息
+    if mp4chaps --convert --chapter-qt "$input"; then
+        echo "mp4chaps completed successfully"
+    else
+        echo "mp4chaps encountered an error"
+        return 1
+    fi
 }
+
 
 create_chapterfile(){
     echo "### Create Chapterfile ###"
@@ -92,10 +115,10 @@ create_chapterfile(){
     local chapter_end=0
     local files=("$@")
     # 按数字排序
-    files=( $(sort -n <<< "${files[@]}") )
+    files=( $(sort -V <<< "${files[@]}") )
     for ((i=0; i<${#files[@]}; i++)); do
         file="${files[$i]}"
-        local chapter_name=$(basename "$file" .mp4)
+        local chapter_name=$(basename "$file" .m4a)
         local chapter_number=$(printf "CHAPTER%s" $((i+1)))
         local duration=$(duration "$file")
 
@@ -108,9 +131,9 @@ create_chapterfile(){
     done
 }
 
-create_filelist(){
+create_filelist() {
     for file in "$@"; do
-        printf "file %q\n" "$(grealpath "$file")" | tee -a /tmp/create_filelist.log
+        printf "file %q\n" "$file" | tee -a /tmp/create_filelist.log
     done
 }
 
@@ -147,7 +170,6 @@ function echo_if {
 }
 
 # ==============================================
-
 
 # call arguments verbatim:
 "$@"

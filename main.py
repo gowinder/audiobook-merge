@@ -1,35 +1,42 @@
 import os
+import time
+from tempfile import NamedTemporaryFile
 
 from dotenv import load_dotenv
 from mutagen.mp4 import MP4, MP4Tags
 from pydub import AudioSegment
-#from StringIO import StringIO
-from io import BytesIO
 
 # Load environment variables from .env file
 load_dotenv()
 
 
-def merge_audiobook_chapters(input_directory, output_file):
+def merge_audiobook_chapters(
+    input_directory, output_file_prefix, max_duration=11 * 60 * 60 * 1000
+):
     # Get list of M4A files in the directory, sorted by filename
     files = sorted([f for f in os.listdir(input_directory) if f.endswith(".m4a")])
-
-    # Initialize an empty AudioSegment for concatenation
-    audiobook = AudioSegment.empty()
 
     # List to store chapter metadata
     chapters = []
     chapter_start = 0
+    part_number = 1
 
     print(f"Merging {len(files)} chapters from {input_directory}")
+
+    audiobook = AudioSegment.empty()
+
     for file in files:
         # Load the audio file
-        file_path = os.path.join(input_directory, file).encode("utf-8")
+        file_path = os.path.join(input_directory, file)
         print(f"Loading {file_path}")
+        start_time = time.time()
         audio = AudioSegment.from_file(file_path, format="m4a")
-        #audio = AudioSegment.from_raw(open(file_path),  sample_width=2,
-        #                             sample_rate=44100, format="m4a", frame_rate=44100, channels=2)
-        # Append to the audiobook
+        load_time = time.time() - start_time
+        print(
+            f"Loaded {audio.duration_seconds} seconds of audio in {load_time:.2f} seconds"
+        )
+
+        # Append to the current audiobook segment
         audiobook += audio
 
         # Add chapter information
@@ -39,12 +46,26 @@ def merge_audiobook_chapters(input_directory, output_file):
         )
         chapter_start += chapter_duration
 
-    # Export the merged audiobook
-    output_path = os.path.join(input_directory, output_file)
-    audiobook.export(output_path, format="mp4", codec="aac")
+        # Check if the current audiobook segment exceeds the maximum duration
+        if len(audiobook) >= max_duration:
+            # Export the current segment to an M4B file
+            output_file = f"{output_file_prefix}_part{part_number}.m4b"
+            output_path = os.path.join(input_directory, output_file)
+            audiobook.export(output_path, format="m4b", codec="aac")
+            add_chapters_to_audiobook(output_path, chapters)
 
-    # Add chapters to the M4B file
-    add_chapters_to_audiobook(output_path, chapters)
+            # Reset for the next segment
+            audiobook = AudioSegment.empty()
+            chapters = []
+            chapter_start = 0
+            part_number += 1
+
+    # Export the last segment if there's any audio left
+    if len(audiobook) > 0:
+        output_file = f"{output_file_prefix}_part{part_number}.m4b"
+        output_path = os.path.join(input_directory, output_file)
+        audiobook.export(output_path, format="m4b", codec="aac")
+        add_chapters_to_audiobook(output_path, chapters)
 
 
 def add_chapters_to_audiobook(file_path, chapters):
@@ -57,21 +78,16 @@ def add_chapters_to_audiobook(file_path, chapters):
         chapter_list.append((start / 1000, title))  # Convert milliseconds to seconds
 
     audio.tags = MP4Tags()
-    audio.tags["©nam"] = "Audiobook"  # Set the title of the audiobook
-    audio.tags["©ART"] = "Author"  # Set the author of the audiobook
-    audio.tags["©alb"] = "Album"  # Set the album name of the audiobook
-    audio.tags["©gen"] = "Audiobook"  # Set the genre
+    audio.tags["©nam"] = os.getenv("OUTPUT_FILE")  # Set the title of the audio「方案选单」book
+    audio.tags["©ART"] = os.getenv("AB_AUTHOR")  # Set the author of the audiobook
+    audio.tags["©alb"] = os.getenv("AB_ALBUM")  # Set the album name of the audiobook
+    audio.tags["©gen"] = os.getenv("AB_GENRE")  # Set the genre
     audio.tags["trkn"] = [(1, 1)]  # Track number
 
     # Add chapters using the 'chpl' atom
     chpl = []
     for start, title in chapter_list:
-        chpl.append(
-            {
-                "time": start,
-                "title": title,
-            }
-        )
+        chpl.append({"time": start, "title": title})
     audio.tags["chpl"] = chpl
 
     # Save the changes
@@ -80,5 +96,5 @@ def add_chapters_to_audiobook(file_path, chapters):
 
 if __name__ == "__main__":
     input_directory = os.getenv("INPUT_DIRECTORY")
-    output_file = os.getenv("OUTPUT_FILE")
-    merge_audiobook_chapters(input_directory, output_file)
+    output_file_prefix = os.getenv("OUTPUT_FILE_PREFIX")
+    merge_audiobook_chapters(input_directory, output_file_prefix)
