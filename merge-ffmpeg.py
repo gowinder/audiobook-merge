@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import time
 
@@ -9,7 +10,10 @@ load_dotenv()
 
 
 def create_concat_file(input_directory, concat_file_path):
-    files = sorted([f for f in os.listdir(input_directory) if f.endswith(".m4a")])
+    files = sorted(
+        [f for f in os.listdir(input_directory) if f.endswith(".m4a")],
+        key=lambda x: int(re.findall(r"^\d+", x)[0]),
+    )
     with open(concat_file_path, "w") as f:
         for file in files:
             file_path = os.path.join(input_directory, file)
@@ -40,7 +44,10 @@ def merge_audiobook_chapters(input_directory, output_file):
 
 
 def generate_chapters_file(input_directory, chapters_file_path):
-    files = sorted([f for f in os.listdir(input_directory) if f.endswith(".m4a")])
+    files = sorted(
+        [f for f in os.listdir(input_directory) if f.endswith(".m4a")],
+        key=lambda x: int(re.findall(r"^\d+", x)[0]),
+    )
     with open(chapters_file_path, "w") as f:
         f.write(";FFMETADATA1\n")  # 添加 FFMETADATA1 标记
         start = 0
@@ -80,8 +87,12 @@ def add_chapters_to_m4b(m4b_file, chapters_file, output_file):
 if __name__ == "__main__":
     input_directory = os.getenv("INPUT_DIRECTORY")
     output_file = os.getenv("OUTPUT_FILE")
+    delete_internal_file = os.getenv("DELETE_INTERNAL_FILE", "false").lower() == "true"
     chapters_file = "chapters.txt"
-    final_output_file = "merged_with_chapters.m4b"
+
+    # Generate final output file name
+    base, ext = os.path.splitext(output_file)
+    final_output_file = f"{base}.chapters{ext}"
 
     # Step 1: Merge m4a files into one m4b file
     merge_audiobook_chapters(input_directory, output_file)
@@ -91,3 +102,7 @@ if __name__ == "__main__":
 
     # Step 3: Add chapters to the merged m4b file
     add_chapters_to_m4b(output_file, chapters_file, final_output_file)
+
+    # Step 4: Delete the original output file if DELETE_INTERNAL_FILE is true
+    if delete_internal_file:
+        os.remove(output_file)
