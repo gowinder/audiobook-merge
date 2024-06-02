@@ -11,7 +11,11 @@ load_dotenv()
 
 def create_concat_file(input_directory, concat_file_path):
     files = sorted(
-        [f for f in os.listdir(input_directory) if f.endswith(".m4a")],
+        [
+            f
+            for f in os.listdir(input_directory)
+            if f.endswith(".m4a") or f.endswith(".mp4")
+        ],
         key=lambda x: int(re.findall(r"^\d+", x)[0]),
     )
     with open(concat_file_path, "w") as f:
